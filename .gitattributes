@@ -1,0 +1,6 @@
+# Keep POSIX shell scripts LF so Linux can execute them, and keep batch files
+# CRLF so cmd.exe parses them correctly.
+* text=auto eol=lf
+*.sh text eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf

@@ -24,6 +24,14 @@ Linux 自动识别 x64/arm64/arm32：
 curl -fsSL https://raw.githubusercontent.com/LANqed/bad-apple/main/install.sh | bash
 ```
 
+`install.sh` 会从 **GitHub Releases** 下载对应架构的二进制。如果报 `curl: (22) ... 404`，说明仓库还没有发布任何 Release（或 Release 缺少该架构资产）。解决办法：修改 `VERSION` 并推送到 `main`，等 GitHub Actions 自动发布；或者直接从源码编译，无需 Release：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/LANqed/bad-apple/main/src/bad_apple_linux.cpp -o /tmp/ba.cpp
+g++ -std=c++17 -O2 /tmp/ba.cpp -o ~/.local/bin/bad-apple
+~/.local/bin/bad-apple
+```
+
 国内 CDN：
 
 ```bash
