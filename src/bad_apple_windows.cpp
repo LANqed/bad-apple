@@ -2,6 +2,7 @@
 // Downloads ASCII frames and MP3 via curl.exe, plays MP3 through the MCI layer
 // (winmm) and renders frames locked to the audio clock, so video never drifts.
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #include <mmsystem.h>
 #include <algorithm>
