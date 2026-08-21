@@ -3,9 +3,12 @@ name: Build and release
 on:
   push:
     branches: [main]
-    paths:
-      - VERSION
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Republish even if the tag already exists'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -27,29 +30,53 @@ jobs:
           fetch-depth: 0
       - name: Read and validate version
         id: read
-        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
         run: |
           version="$(tr -d '[:space:]' < VERSION)"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "VERSION must be a semantic version such as 1.2.3" >&2
+            echo "::error::VERSION must be a semantic version such as 1.2.3 (got '$version')"
             exit 1
           fi
           tag="v$version"
-          if git rev-parse "$tag" >/dev/null 2>&1 || gh release view "$tag" >/dev/null 2>&1; then
+
+          tag_exists=false
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null 2>&1; then
+            tag_exists=true
+          elif gh release view "$tag" >/dev/null 2>&1; then
+            tag_exists=true
+          fi
+
+          if [[ "$tag_exists" == 'true' && "$FORCE" != 'true' ]]; then
             publish=false
-            echo "Release $tag already exists; nothing to publish."
           else
             publish=true
           fi
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
-        env:
-          GH_TOKEN: ${{ github.token }}
 
-  build:
+          {
+            echo "### Release decision"
+            echo ""
+            echo "| key | value |"
+            echo "| --- | --- |"
+            echo "| VERSION | \`$version\` |"
+            echo "| tag | \`$tag\` |"
+            echo "| tag or release exists | \`$tag_exists\` |"
+            echo "| force | \`${FORCE:-false}\` |"
+            echo "| publish | \`$publish\` |"
+            echo ""
+            if [[ "$publish" != 'true' ]]; then
+              echo "Release \`$tag\` already exists. Bump \`VERSION\`, or re-run this"
+              echo "workflow manually with **force** enabled to republish."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  linux:
     needs: version
-    if: needs.version.outputs.publish == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -85,7 +112,6 @@ jobs:
 
   windows:
     needs: version
-    if: needs.version.outputs.publish == 'true'
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
@@ -103,8 +129,10 @@ jobs:
 
   windows-arm32:
     needs: version
-    if: needs.version.outputs.publish == 'true'
     runs-on: windows-2022
+    # The ARM32 (v143 ARM) toolset is optional on the hosted image, so a
+    # missing toolchain must not block the rest of the release.
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: Build Windows ARM32
@@ -120,7 +148,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [version, build, windows, windows-arm32]
+    needs: [version, linux, windows, windows-arm32]
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-22.04
     steps:
@@ -136,12 +164,16 @@ jobs:
           cp install.sh bad-apple.sh bad-apple.ps1 bad-apple.cmd bad-apple-rt.ps1 dist/
           chmod +x dist/bad-apple-linux-* dist/install.sh dist/bad-apple.sh
           (cd dist && sha256sum * > SHA256SUMS)
+          ls -l dist
       - name: Create tag and GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
           gh release create "$TAG" dist/* \
             --target "$GITHUB_SHA" \
             --title "Bad Apple $VERSION" \
