@@ -161,8 +161,31 @@ jobs:
           path: bad-apple-windows-arm32.exe
           if-no-files-found: error
 
+  audio:
+    needs: version
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Build codec-free WAV
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          curl -fL --retry 3 --silent --show-error \
+            https://cdn.jsdelivr.net/gh/EmirXK/bad_apple@master/bad_apple.mp3 \
+            -o bad_apple.mp3
+          # 16 kHz mono PCM keeps the asset small while staying playable by
+          # waveOut on every Windows version, including Windows RT.
+          ffmpeg -hide_banner -loglevel error -y -i bad_apple.mp3 \
+            -ac 1 -ar 16000 -c:a pcm_s16le bad_apple.wav
+          ls -l bad_apple.wav
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bad-apple-audio
+          path: bad_apple.wav
+          if-no-files-found: error
+
   release:
-    needs: [version, linux, windows, windows-arm32]
+    needs: [version, linux, windows, windows-arm32, audio]
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-22.04
     steps:

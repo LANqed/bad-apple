@@ -4,7 +4,13 @@
 
 ## 音画同步
 
-Windows 播放器（脚本和原生程序）用系统 MCI 播放 MP3，并以**音频时钟驱动画面**：每一帧的显示时刻由音频当前位置换算，视频始终跟随音乐，不会越跑越偏。每帧渲染前会按最大宽度补齐并清掉上一帧残留，避免画面出现遮挡残留。
+Windows 原生播放器按以下顺序选择音频后端，并始终用**音频时钟驱动画面**，视频不会越跑越偏：
+
+1. **WAV + `waveOut`**：从 Release 下载 16 kHz 单声道 PCM，不需要任何解码器，Windows RT 也能播；`waveOutGetPosition` 提供精确音频位置
+2. **MP3 + MCI**：桌面 Windows 装有 MP3 解码器时使用
+3. **mpv / ffplay**：以隐藏窗口方式启动
+
+每帧渲染前会按最大宽度补齐并清掉上一帧残留，避免画面出现遮挡残留。
 
 ## 环境要求
 
@@ -73,6 +79,8 @@ https://github.com/LANqed/bad-apple/releases/latest/download/bad-apple-windows-a
 
 ARM32 产物由 llvm-mingw 的 `armv7-w64-mingw32-g++` 静态编译（MSVC 在 GitHub hosted runner 上缺少 Windows SDK 的 ARM 导入库，无法链接），静态链接后不依赖任何运行库。
 
+音频优先使用 Release 里的 `bad_apple.wav`（16 kHz 单声道 PCM，约 6.7 MB），通过 `waveOut` 播放，不需要 MP3 解码器，因此在 Windows RT 上也能出声。
+
 把 `bad-apple-windows-arm32.exe` 放到 `bad-apple-rt.ps1` 同目录后直接运行脚本，或在桌面上直接运行该 exe。`bad-apple-rt.ps1` 会自动检测受限模式：有原生播放器就用它，否则给出上述提示。只有在 Full Language Mode 下才会回退到 `bad-apple.ps1` 的 PowerShell 播放器。
 
 版本号由根目录 `VERSION` 管理。修改版本号（例如从 `0.1.0` 改成 `0.2.0`）并推送到 `main` 后，`.github/workflows/release.yml` 会自动校验版本、构建三套 Linux 架构与 Windows x64/ARM32、创建 `v0.2.0` 标签与 GitHub Release，并上传：
@@ -83,6 +91,7 @@ bad-apple-linux-arm64
 bad-apple-linux-arm32
 bad-apple-windows-amd64.exe
 bad-apple-windows-arm32.exe
+bad_apple.wav
 install.sh
 bad-apple.sh
 bad-apple.ps1
