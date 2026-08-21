@@ -1,0 +1,48 @@
+name: Linux binaries
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+            compiler: g++
+            cxxflags: ''
+          - arch: arm64
+            runner: ubuntu-24.04
+            compiler: aarch64-linux-gnu-g++
+            cxxflags: ''
+          - arch: arm32
+            runner: ubuntu-22.04
+            compiler: arm-linux-gnueabihf-g++
+            cxxflags: ''
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          if [ "${{ matrix.arch }}" = arm64 ]; then
+            sudo apt-get update
+            sudo apt-get install -y g++-aarch64-linux-gnu
+          elif [ "${{ matrix.arch }}" = arm32 ]; then
+            sudo apt-get update
+            sudo apt-get install -y g++-arm-linux-gnueabihf
+          fi
+          ${{ matrix.compiler }} -std=c++17 -O2 -Wall -Wextra -pedantic ${{ matrix.cxxflags }} \
+            src/bad_apple_linux.cpp -o bad-apple-linux-${{ matrix.arch }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bad-apple-linux-${{ matrix.arch }}
+          path: bad-apple-linux-${{ matrix.arch }}
+      - name: Upload release asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bad-apple-linux-${{ matrix.arch }}
