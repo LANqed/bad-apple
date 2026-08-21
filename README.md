@@ -51,27 +51,28 @@ curl.exe -fL https://github.com/LANqed/bad-apple/releases/latest/download/bad-ap
 
 ### Windows RT 8/8.1（ARM32）
 
-`bad-apple-rt.ps1` 下载统一的 `bad-apple.ps1` 播放器并运行；播放器只使用 Windows PowerShell 4.0、`.NET WebClient` 和系统 `winmm.dll` 的 MCI MP3 播放能力，不需要 `curl.exe`、PowerShell 7、FFmpeg、MPV 或第三方 ARM32 EXE。设备已越狱时可以直接使用此入口：
+Windows RT 的 PowerShell 运行在 **Constrained Language Mode**（受限语言模式），该模式禁止 `Add-Type`/P-Invoke、任意 `New-Object` 和属性赋值，因此纯 PowerShell 无法在 RT 上播放音频。请在越狱后的 RT 上使用原生 ARM32 播放器：
 
-```powershell
-powershell -ExecutionPolicy Bypass -Command "iex ((New-Object Net.WebClient).DownloadString('https://cdn.jsdelivr.net/gh/LANqed/bad-apple@main/bad-apple-rt.ps1'))"
+```text
+bad-apple-windows-arm32.exe
 ```
 
-本地运行：
+下载地址：
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\bad-apple-rt.ps1
+```text
+https://github.com/LANqed/bad-apple/releases/latest/download/bad-apple-windows-arm32.exe
 ```
 
-该入口从 jsDelivr 下载 ASCII 帧和 MP3 到临时目录，用 MCI 同步播放音频，结束或中断时关闭音频并删除临时文件。若 Windows RT 映像缺少 MCI 的 `mpegvideo` 编解码支持，脚本会报出 MCI 错误码，此时需要改用 WAV 版本或原生桌面播放器。
+把 `bad-apple-windows-arm32.exe` 放到 `bad-apple-rt.ps1` 同目录后直接运行脚本，或在桌面上直接运行该 exe。`bad-apple-rt.ps1` 会自动检测受限模式：有原生播放器就用它，否则给出上述提示。只有在 Full Language Mode 下才会回退到 `bad-apple.ps1` 的 PowerShell 播放器。
 
-版本号由根目录 `VERSION` 管理。修改版本号（例如从 `0.1.0` 改成 `0.2.0`）并推送到 `main` 后，`.github/workflows/release.yml` 会自动校验版本、构建三套 Linux 架构与 Windows x64、创建 `v0.2.0` 标签与 GitHub Release，并上传：
+版本号由根目录 `VERSION` 管理。修改版本号（例如从 `0.1.0` 改成 `0.2.0`）并推送到 `main` 后，`.github/workflows/release.yml` 会自动校验版本、构建三套 Linux 架构与 Windows x64/ARM32、创建 `v0.2.0` 标签与 GitHub Release，并上传：
 
 ```text
 bad-apple-linux-amd64
 bad-apple-linux-arm64
 bad-apple-linux-arm32
 bad-apple-windows-amd64.exe
+bad-apple-windows-arm32.exe
 install.sh
 bad-apple.sh
 bad-apple.ps1
