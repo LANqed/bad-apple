@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -5,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -67,18 +69,60 @@ void bell_loop() {
     }
 }
 
+void write_frame(const std::string& text, size_t max_width, size_t max_rows) {
+    std::ostringstream os;
+    size_t start = 0;
+    size_t rows = 0;
+    while (start <= text.size() && rows < max_rows) {
+        size_t nl = text.find('\n', start);
+        std::string line = (nl == std::string::npos) ? text.substr(start)
+                                                      : text.substr(start, nl - start);
+        os << line;
+        if (line.size() < max_width) os << std::string(max_width - line.size(), ' ');
+        os << '\n';
+        ++rows;
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    while (rows < max_rows) {
+        os << std::string(max_width, ' ') << '\n';
+        ++rows;
+    }
+    std::cout << "\033[H" << os.str() << std::flush;
+}
+
+void compute_dimensions(const std::vector<std::string>& frames,
+                        size_t* max_width, size_t* max_rows) {
+    size_t width = 0, rows = 0;
+    for (const auto& text : frames) {
+        size_t row = 1, col = 0, start = 0;
+        while (true) {
+            size_t nl = text.find('\n', start);
+            size_t end = (nl == std::string::npos) ? text.size() : nl;
+            col = std::max(col, end - start);
+            if (nl == std::string::npos) break;
+            start = nl + 1;
+            ++row;
+        }
+        width = std::max(width, col);
+        rows = std::max(rows, row);
+    }
+    *max_width = width;
+    *max_rows = rows;
+}
+
 int main(int argc, char** argv) {
     const std::string frames_url =
-        "https://cdn.jsdelivr.net/gh/lxcnju/bad_apple_ascii@master/html/bad1.html";
+        "https://cdn.jsdelivr.net/gh/Toni4819/BadApple-ASCII-Terminal@main/BadApple_ASCII.ps1";
     const std::string audio_url =
         "https://cdn.jsdelivr.net/gh/EmirXK/bad_apple@master/bad_apple.mp3";
+    const double audio_seconds = 219.09;
     const fs::path temp = fs::temp_directory_path() / ("bad-apple-" + std::to_string(getpid()));
-    const fs::path frames = temp / "frames.html";
+    const fs::path frames = temp / "frames.ps1";
     const fs::path audio = temp / "bad-apple.mp3";
-    const double fps = argc > 1 ? std::stod(argv[1]) : 10.0;
 
-    if (fps <= 0 || !command_exists("curl")) {
-        std::cerr << "用法: bad-apple [fps]\n需要 curl\n";
+    if (!command_exists("curl")) {
+        std::cerr << "需要 curl\n";
         return 1;
     }
     std::signal(SIGINT, stop_handler);
@@ -91,22 +135,55 @@ int main(int argc, char** argv) {
     }
 
     std::ifstream input(frames);
-    std::string html((std::istreambuf_iterator<char>(input)), {});
-    std::regex frame_re(R"(<pre>([\s\S]*?)</pre>)", std::regex::icase | std::regex::optimize);
-    std::sregex_iterator it(html.begin(), html.end(), frame_re), end;
     std::vector<std::string> all_frames;
-    for (; it != end; ++it) all_frames.push_back((*it)[1].str());
+    std::vector<std::string> buffer;
+    bool capturing = false;
+    std::string line;
+    while (std::getline(input, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (capturing) {
+            if (line == "\"@") {
+                std::string frame;
+                for (const auto& part : buffer) {
+                    frame += part;
+                    frame += '\n';
+                }
+                if (!frame.empty()) frame.pop_back();
+                all_frames.push_back(frame);
+                buffer.clear();
+                capturing = false;
+            } else {
+                buffer.push_back(line);
+            }
+        } else if (line == "@\"") {
+            capturing = true;
+        }
+    }
     if (all_frames.empty()) {
         std::cerr << "没有解析到 ASCII 帧\n";
         fs::remove_all(temp);
         return 1;
     }
+    const double fps = argc > 1
+        ? std::stod(argv[1])
+        : static_cast<double>(all_frames.size()) / audio_seconds;
+    if (fps <= 0) {
+        std::cerr << "无效帧率\n";
+        fs::remove_all(temp);
+        return 1;
+    }
+    size_t max_width = 0, max_rows = 0;
+    compute_dimensions(all_frames, &max_width, &max_rows);
 
     audio_pid = start_audio(audio);
     std::thread bell;
     if (audio_pid < 0) {
         std::cerr << "找不到 mpv/ffplay，降级为 PC Speaker/终端响铃（非原曲）\n";
         bell = std::thread(bell_loop);
+    } else {
+        // Let the audio player open the device and start output before the
+        // frame clock begins, so video does not run ahead of the music.
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
     }
 
     std::atexit(cleanup);
@@ -115,7 +192,7 @@ int main(int argc, char** argv) {
     for (size_t index = 0; index < all_frames.size() && !stopping; ++index) {
         const auto target = start + std::chrono::duration<double>(index / fps);
         std::this_thread::sleep_until(target);
-        std::cout << "\033[H" << all_frames[index] << std::flush;
+        write_frame(all_frames[index], max_width, max_rows);
     }
     stopping = 1;
     if (bell.joinable()) bell.join();

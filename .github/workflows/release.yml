@@ -1,48 +1,131 @@
-name: Linux binaries
+name: Build and release
 
 on:
-  workflow_dispatch:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths:
+      - VERSION
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      tag: ${{ steps.read.outputs.tag }}
+      publish: ${{ steps.read.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read and validate version
+        id: read
+        shell: bash
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "VERSION must be a semantic version such as 1.2.3" >&2
+            exit 1
+          fi
+          tag="v$version"
+          if git rev-parse "$tag" >/dev/null 2>&1 || gh release view "$tag" >/dev/null 2>&1; then
+            publish=false
+            echo "Release $tag already exists; nothing to publish."
+          else
+            publish=true
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   build:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
-            runner: ubuntu-22.04
             compiler: g++
-            cxxflags: ''
+            package: ''
           - arch: arm64
-            runner: ubuntu-24.04
             compiler: aarch64-linux-gnu-g++
-            cxxflags: ''
+            package: g++-aarch64-linux-gnu
           - arch: arm32
-            runner: ubuntu-22.04
             compiler: arm-linux-gnueabihf-g++
-            cxxflags: ''
-    runs-on: ${{ matrix.runner }}
+            package: g++-arm-linux-gnueabihf
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install cross compiler
+        if: matrix.package != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.package }}
       - name: Build
         run: |
-          if [ "${{ matrix.arch }}" = arm64 ]; then
-            sudo apt-get update
-            sudo apt-get install -y g++-aarch64-linux-gnu
-          elif [ "${{ matrix.arch }}" = arm32 ]; then
-            sudo apt-get update
-            sudo apt-get install -y g++-arm-linux-gnueabihf
-          fi
-          ${{ matrix.compiler }} -std=c++17 -O2 -Wall -Wextra -pedantic ${{ matrix.cxxflags }} \
+          ${{ matrix.compiler }} -std=c++17 -O2 -Wall -Wextra -pedantic \
             src/bad_apple_linux.cpp -o bad-apple-linux-${{ matrix.arch }}
+          file bad-apple-linux-${{ matrix.arch }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bad-apple-linux-${{ matrix.arch }}
           path: bad-apple-linux-${{ matrix.arch }}
-      - name: Upload release asset
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+          if-no-files-found: error
+
+  windows:
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Windows x64
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /std:c++17 /O2 /EHsc src\bad_apple_windows.cpp /Fe:bad-apple-windows-amd64.exe /link winmm.lib
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: bad-apple-linux-${{ matrix.arch }}
+          name: bad-apple-windows-amd64
+          path: bad-apple-windows-amd64.exe
+          if-no-files-found: error
+
+  release:
+    needs: [version, build, windows]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bad-apple-*
+          path: dist
+          merge-multiple: true
+      - name: Prepare release assets
+        run: |
+          cp install.sh bad-apple.sh bad-apple.ps1 bad-apple.cmd bad-apple-rt.ps1 dist/
+          chmod +x dist/bad-apple-linux-* dist/install.sh dist/bad-apple.sh
+          (cd dist && sha256sum * > SHA256SUMS)
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "Bad Apple $VERSION" \
+            --generate-notes \
+            --latest
