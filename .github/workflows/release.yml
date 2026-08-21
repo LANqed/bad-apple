@@ -130,16 +130,30 @@ jobs:
   windows-arm32:
     needs: version
     runs-on: windows-2022
-    # The ARM32 (v143 ARM) toolset is optional on the hosted image, so a
-    # missing toolchain must not block the rest of the release.
+    # Windows RT / ARMv7 target. The hosted image ships the MSVC ARM32
+    # compiler but not the matching Windows SDK ARM import libraries
+    # (kernel32.lib etc.), so MSVC cannot link. llvm-mingw provides a
+    # self-contained armv7 toolchain with its own import libraries.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Build Windows ARM32
-        shell: cmd
+      - name: Install llvm-mingw (armv7)
+        shell: pwsh
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" amd64_arm
-          cl /nologo /std:c++17 /O2 /EHsc /MT src\bad_apple_windows.cpp /Fe:bad-apple-windows-arm32.exe
+          $tag = '20260812'
+          $zip = "llvm-mingw-$tag-msvcrt-x86_64.zip"
+          $url = "https://github.com/mstorsjo/llvm-mingw/releases/download/$tag/$zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip -MaximumRetryCount 3 -RetryIntervalSec 10
+          Expand-Archive -Path $zip -DestinationPath C:\llvm-mingw -Force
+          $root = (Get-ChildItem C:\llvm-mingw -Directory | Select-Object -First 1).FullName
+          "$root\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Build Windows ARM32
+        shell: pwsh
+        run: |
+          armv7-w64-mingw32-g++ --version
+          armv7-w64-mingw32-g++ -std=c++17 -O2 -static -static-libgcc -static-libstdc++ `
+            src/bad_apple_windows.cpp -o bad-apple-windows-arm32.exe
+          Get-Item bad-apple-windows-arm32.exe | Select-Object Name, Length
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

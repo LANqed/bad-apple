@@ -71,6 +71,8 @@ bad-apple-windows-arm32.exe
 https://github.com/LANqed/bad-apple/releases/latest/download/bad-apple-windows-arm32.exe
 ```
 
+ARM32 产物由 llvm-mingw 的 `armv7-w64-mingw32-g++` 静态编译（MSVC 在 GitHub hosted runner 上缺少 Windows SDK 的 ARM 导入库，无法链接），静态链接后不依赖任何运行库。
+
 把 `bad-apple-windows-arm32.exe` 放到 `bad-apple-rt.ps1` 同目录后直接运行脚本，或在桌面上直接运行该 exe。`bad-apple-rt.ps1` 会自动检测受限模式：有原生播放器就用它，否则给出上述提示。只有在 Full Language Mode 下才会回退到 `bad-apple.ps1` 的 PowerShell 播放器。
 
 版本号由根目录 `VERSION` 管理。修改版本号（例如从 `0.1.0` 改成 `0.2.0`）并推送到 `main` 后，`.github/workflows/release.yml` 会自动校验版本、构建三套 Linux 架构与 Windows x64/ARM32、创建 `v0.2.0` 标签与 GitHub Release，并上传：
